@@ -26,7 +26,7 @@ def add_btn_clicked(linebox, f):
     def callback(arg):
         # Assume that the spec has lists where "add more" extends only first item.
         # linebox.children = (linebox.children[0], f()[0]) + linebox.children
-        linebox.children = linebox.children + (f()[0],)
+        linebox.children = (linebox.children[0], f()[0]) + linebox.children[1:]
     return callback
 
 def delete_btn_clicked(b):
