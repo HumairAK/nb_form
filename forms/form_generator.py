@@ -1,111 +1,139 @@
 from ipywidgets import interact, interactive, widgets, Button, Layout
-
-wtypes = []
-
-def render(spec):
-    if isinstance(spec, dict):
-        accumulate = []
-        for i in spec:
-            accumulate += render(spec[i])
-        return [accumulate]
-
-    elif isinstance(spec, list):
-        accumulate = []
-        for i in spec:
-            accumulate += render(i)
-        return [accumulate]
-
-    # Base case
-    elif any([isinstance(spec, i) for i in wtypes]):
-        return [spec]
-    else:
-        return []
+import yaml
 
 
-def add_btn_clicked(linebox, f):
-    def callback(arg):
-        # Assume that the spec has lists where "add more" extends only first item.
-        # linebox.children = (linebox.children[0], f()[0]) + linebox.children
-        linebox.children = (linebox.children[0], f()[0]) + linebox.children[1:]
+def done_action(s):
+    def callback(e):
+        data = {
+            'env': s['env'].value,
+            'target_cluster': s['cluster'].value,
+            'team_name': s['team_name'].value,
+            'project_description': s['project_description'].value,
+            'users': [],
+            'namespaces': []
+        }
+
+        for i in s['users']:
+            data['users'].append(s['_toYaml']['users'](i))
+
+        for i in s['namespaces']:
+            data['namespaces'].append(s['_toYaml']['namespaces'](i))
+
+        with open('output.yaml', 'w') as f:
+            yaml.safe_dump(data, f)
+
+
     return callback
 
-def delete_btn_clicked(b):
-    b.parent.layout.display = 'none'
 
-def create_vbox(spec):
+def add_btn_clicked(spec_entries, box, widget_creator):
+    def callback(b):
+        widget = widget_creator()
+        spec_entries.append(widget)
 
-    if isinstance(spec, dict):
-        box = []
-        for key in spec:
-            box.append(create_vbox(spec[key]))
-        box.append(widgets.Output(layout={'border': '1px solid black'}))
-        return widgets.VBox(box)
+        delete_button = widgets.Button(icon="trash")
+        delete_button.on_click(delete_btn_clicked(widget, spec_entries))
 
-    elif isinstance(spec, list):
-        add = widgets.Button(description="Add More", icon="plus-circle")
+        entry = widgets.HBox([widget, delete_button])
+        delete_button.parent = entry
 
-        def create_section():
-            section = []
-            delete_button = widgets.Button(icon="trash")
-            delete_button.on_click(delete_btn_clicked)
-            for i in spec:
-                element = create_vbox(i)
-                section.append(element)
-            section.append(delete_button)
-            return section
+        box.children = (box.children[0], entry) + box.children[1:]
+    return callback
 
-        section = create_section()
-        section.append(add)
-        input_box = widgets.VBox(section)
-        add.on_click(add_btn_clicked(input_box, create_section))
-        return input_box
 
-    # Base case
-    else:
-        return spec
+def delete_btn_clicked(widget, spec_entries):
+    def callback(b):
+        spec_entries.remove(widget)
+        b.parent.layout.display = 'none'
+    return callback
+
+
+def dyamic_line(spec_entries, widget_creator):
+    add = widgets.Button(description="Add", icon="plus-circle")
+    input_box = widgets.VBox([add])
+    cb = add_btn_clicked(spec_entries, input_box, widget_creator)
+    add.on_click(cb)
+    cb(input_box)
+    return input_box
 
 
 def generate_form(clusters, envs):
-    global wtypes
-    wtypes = [widgets.Dropdown, widgets.Text, widgets.Textarea]
     spec = {
         "cluster": widgets.Dropdown(options=clusters, value=clusters[0], description='Cluster:'),
         "env": widgets.Dropdown(options=envs, value=envs[0], description='Environment:'),
         "team_name": widgets.Text(value='team-name', description='Team:'),
         "project_description": widgets.Textarea(value='your project description here', description='Description:'),
-        "users": [
-            widgets.Text(value='github-username', description='GitHub Username:')
-        ],
-        "namespaces": [
-            {
-                "name": widgets.Text(value='Your-Namespace-Name', description='Namespace:'),
+        # Dynamic entries
+        "users": lambda: widgets.Text(value='github-username', description='GitHub Username:'),
+        "namespaces": lambda: widgets.VBox([
+            widgets.Text(value='Your-Namespace-Name', description='Namespace:'),
+            widgets.Text(value='false', description='Disable limit range:'),
+            widgets.Text(value='display-name', description='Project display name:'),
+            widgets.Text(value='small', description='Quota tier:'),
+            widgets.VBox([
+                widgets.Text(value='2', description='requests.cpu'),
+                widgets.Text(value='2Gi', description='requests.memory'),
+                widgets.Text(value='4', description='limits.cpu'),
+                widgets.Text(value='4Gi', description='limits.memory.'),
+                widgets.Text(value='8Gi', description='requests.storage'),
+                widgets.BoundedIntText(value=4, min=0, max=100, description='Bucketclaims')
+            ]),
+            widgets.Output(layout={'border': '1px solid black'})
+
+        ]),
+
+
+        # Meta custom converters
+        "_toYaml": {
+            "users": lambda w: w.value,
+            "namespaces": lambda w: {
+                "name": w.children[0].value,
+                "enable_monitoring": "false", # TODO: remove, monitoring switched to UWM
+                "disable_limit_range": w.children[1].value,
+                "project_display_name": w.children[2].value,
+                "quota": w.children[3].value,
                 "custom_quota": {
-                    "requests.cpu": widgets.Text(value='2', description='requests.cpu'),
-                    "requests.memory": widgets.Text(value='2Gi', description='requests.memory'),
-                    "limits.cpu": widgets.Text(value='4', description='limits.cpu'),
-                    "limits.memory": widgets.Text(value='4Gi', description='limits.memory.'),
-                    "requests.storage": widgets.Text(value='8Gi', description='requests.storage'),
-                    "count/objectbucketclaims.objectbucket.io": widgets.BoundedIntText(value=4, min=0, max=100, description='Bucketclaims'),
-                }
-            },
-            {
-                "name": widgets.Text(value='Your-Nafdsamespace-Name', description='Namespace:'),
-                "custom_quota": {
-                    "requests.cpu": widgets.Text(value='2', description='requests.cpu'),
-                    "requests.memory": widgets.Text(value='2Gi', description='requests.memory'),
-                    "limits.cpu": widgets.Text(value='4', description='limits.cpu'),
-                    "limits.memory": widgets.Text(value='4Gi', description='limits.memory.'),
-                    "requests.storage": widgets.Text(value='8Gi', description='requests.storage'),
-                    "count/objectbucketclaims.objectbucket.io": widgets.BoundedIntText(value=4, min=0, max=100,
-                                                                                       description='Bucketclaims'),
-                }
+                    "limits.cpu": w.children[4].children[0].value,
+                    "requests.cpu": w.children[4].children[1].value,
+                    "limits.memory": w.children[4].children[2].value,
+                    "requests.memory": w.children[4].children[3].value,
+                    "requests.storage": w.children[4].children[4].value,
+                    "count/objectbucketclaims.objectbucket.io": w.children[4].children[5].value
+                },
+
             }
-        ]
+        }
     }
 
+    divider = widgets.Output(layout={'border': '1px solid black'})
 
-    # r = render(spec)
-    formbox = create_vbox(spec)
-    return formbox
+    # Users:
+    user_creator = spec['users']
+    spec['users'] = []
+    users = dyamic_line(spec['users'], user_creator)
+
+    # Namespaces
+    ns_creator = spec['namespaces']
+    spec['namespaces'] = []
+    namespaces = dyamic_line(spec['namespaces'], ns_creator)
+
+    # Done Button
+    done_button = widgets.Button(description='Generate PR', button_style='', tooltip='Click me', )
+    done_button.on_click(done_action(spec))
+
+    form = [
+        spec['cluster'],
+        spec['env'],
+        spec['team_name'],
+        spec['project_description'],
+        divider,
+        users,
+        divider,
+        namespaces,
+        # DONE
+        done_button,
+    ]
 
 
+
+    return widgets.VBox(form), spec
